@@ -16,3 +16,17 @@ so workflows must use pull_request with ordinary runner isolation.
 Reports are written before the failure exit. Comment permission errors warn
 without erasing the summary or changing the geometry verdict. Comments are
 updated only when their author is github-actions[bot] and the marker matches.
+
+## Live verification
+
+- [Failing PR](https://github.com/fraylabs/burr-action-demo/pull/1): a deliberately
+  overlapping MIT box assembly reports one proven `fixed`/`moving` interference,
+  zero unresolved pairs, and a failed job.
+- [Passing PR](https://github.com/fraylabs/burr-action-demo/pull/2): the GPL Voron
+  mount has two separated solids, zero interference and unresolved pairs, and a
+  complete pass.
+- [Runner compatibility](https://github.com/fraylabs/burr-action-demo/actions/runs/38116650326):
+  ubuntu-latest and macos-14 pass using released Burr 0.40.4. Report-only mode
+  succeeds while its output remains `interference`.
+- Rerunning both PRs keeps their original GitHub Actions comment IDs. The clean
+  rerun logs a binary cache hit and successful restore.

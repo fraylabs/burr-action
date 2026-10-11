@@ -22,6 +22,8 @@ jobs:
           comment: 'true'
 ```
 
+![Burr's PR summary names the interfering parts](docs/pr-summary.png)
+
 By default, the action checks only added, modified, or renamed `.step` / `.stp`
 files in the PR (case insensitive). Deleted files are skipped. Outside a PR it
 checks tracked STEP files. Set `files` to newline-separated globs to check a
@@ -52,7 +54,9 @@ file containing all assembly reports). To retain the JSON, give the action an
 `id` and upload `${{ steps.<id>.outputs.report-path }}` with
 `actions/upload-artifact@v4` in an `if: always()` step.
 
-[Real passing and failing PRs](https://github.com/fraylabs/burr-action-demo/pulls)
-show the action running against redistributed open-source STEP assemblies.
+[Passing Voron assembly PR](https://github.com/fraylabs/burr-action-demo/pull/2)
+and [failing overlap PR](https://github.com/fraylabs/burr-action-demo/pull/1)
+show real checks, uploaded JSON, and a single updated bot comment. The demo
+also includes the licensed Voron and openAMR corpus assemblies.
 
 MIT license. Burr itself: [fraylabs/burr](https://github.com/fraylabs/burr).
