@@ -40,7 +40,7 @@ warning. Use `pull_request`, never `pull_request_target` to execute untrusted CA
 
 | Input | Default | Meaning |
 | --- | --- | --- |
-| `version` | `0.40.4` | Released Burr version, or `latest` |
+| `version` | `0.40.5` | Released Burr version, or `latest` |
 | `files` | empty | Newline-separated Python globs, relative to checkout |
 | `accepted-fits` | `.burr/accepted.yml` | Optional reviewed list of intended assembly/part pairs |
 | `generate-accepted-fits` | `false` | Print a review-required YAML draft and expose `accepted-draft-path`; never auto-accept |
@@ -95,25 +95,31 @@ does not change the verdict or write the repo's accepted file; committing an
 unreviewed draft is rejected. Set `files` to check assemblies when only the
 accepted file changes in a PR.
 
-When Burr reports stable occurrence names or paths, narrow each part selector:
+With Burr 0.40.5, copy the source occurrence path from the report or generated
+draft to select one component:
 
 ```yaml
 - assembly: models/bracket.step
   parts:
-    - name: bracket
-      occurrence-path: chassis/left/bracket
-    - name: shoulder_screw
-      occurrence-name: left_thread_screw
+    - occurrence-path: 'step-solid:v1:"bracket-left"'
+    - occurrence-path: 'step-solid:v1:"shoulder-screw-left"'
   reason: Modelled thread engagement is intentional.
 ```
 
-The generator prefers this narrow form. The optional selectors match Burr's
+The generator emits path-only selectors when `identity_stable` is true, so a
+filename-based display name does not affect acceptance. The optional selectors match Burr's
 `occurrence_path` / `instance_path` and `occurrence_name` / `instance_name`
 fields, or an authored displayed name without a generated occurrence suffix.
 Generated ` #N` names and occurrence indices are never stable selectors.
-Burr 0.40.4 does not provide stable paths for repeated parts; those fits stay
-unaccepted until the CAD/checker supplies unique stable identities. In particular,
-Ned2's generic names cannot safely distinguish its intended fits from other pairs.
+Burr 0.40.5 supplies the complete `components` inventory, including clear parts.
+Assembly paths encode source PRODUCT and NEXT_ASSEMBLY_USAGE_OCCURRENCE labels;
+flat exports use distinct authored solid labels. Entity record numbers, load
+order and generated display suffixes are excluded. Preserve the source labels
+when re-exporting; changed labels require reviewing new selectors. An occurrence
+with duplicate or unavailable source labels reports `identity_stable: false`
+and `identity_reason`; no policy accepts it and the draft omits it. Older Burr
+reports remain supported, but repeated parts without source paths still fail
+uniqueness checks. Unresolved geometry always retains its separate failure.
 
 Free checks need no Burr account or token. To enable hosted extras, add
 `burr-token: ${{ secrets.BURR_TOKEN }}` under `with`. The client uses the
