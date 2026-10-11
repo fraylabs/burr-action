@@ -29,8 +29,11 @@ files in the PR (case insensitive). Deleted files are skipped. Outside a PR it
 checks tracked STEP files. Set `files` to newline-separated globs to check a
 specific set instead, for example `models/**/*.step`.
 
-Every assembly gets a job summary with part names and interference reasons,
-unresolved counts and reasons, and contact pairs folded away. An incomplete
+Every complete assembly gets a summary such as "105 pairs checked: 3
+interfering, 2 touching, all others proven clear", using Burr's checked pair
+count and completeness flag. Incomplete assemblies are labelled **INCOMPLETE**
+with unresolved pairs and their reasons. Part names and interference reasons
+are shown, with contact pairs folded away. An incomplete
 check is never called a pass. The optional comment is created or updated by
 `github-actions[bot]`; a read-only fork token simply skips the comment with a
 warning. Use `pull_request`, never `pull_request_target` to execute untrusted CAD.
@@ -43,11 +46,23 @@ warning. Use `pull_request`, never `pull_request_target` to execute untrusted CA
 | `fail-on-unresolved` | `true` | Fail on incomplete checks, import errors, or timeouts |
 | `comment` | `false` | Update one PR comment using the workflow token |
 | `github-token` | `${{ github.token }}` | Token for changed files and optional comment |
+| `burr-token` | empty | Optional Pro/Team secret for hosted history and baseline retrieval |
 | `timeout` | `300` | Seconds per assembly (1–3600) |
 
 Linux x64 and macOS x64/arm64 runners are supported. Released binaries are
 checksum-verified and cached by version, OS, and architecture. Burr 0.40.4 or
 newer is required for `check --json`.
+
+Free checks need no Burr account or token. To enable hosted extras, add
+`burr-token: ${{ secrets.BURR_TOKEN }}` under `with`. The client uses the
+`https://burr.sh/api/v1` licence, baseline and history API with one total
+five-second deadline and no retries. Missing/invalid tokens, malformed
+responses, HTTP errors and timeouts skip only hosted extras. Interference and
+incomplete checks still fail by default. CAD files are never uploaded; hosted
+history contains the JSON report, including part names and local witnesses.
+Only supply the secret to workflows whose code you trust. Baselines are read
+only; the action never replaces one from a PR. Hosted service availability is
+independent of the free check.
 
 Outputs: `status` (`pass`, `interference`, `incomplete`) and `report-path` (a JSON
 file containing all assembly reports). To retain the JSON, give the action an

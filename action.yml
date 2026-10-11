@@ -19,6 +19,9 @@ inputs:
   github-token:
     description: Token for reading PR changes and optional bot comment
     default: ${{ github.token }}
+  burr-token:
+    description: Optional Burr Pro/Team secret for hosted extras; unavailable extras never change the geometry verdict
+    default: ''
   timeout:
     description: Maximum seconds per assembly
     default: '300'
@@ -57,4 +60,5 @@ runs:
         BURR_COMMENT: ${{ inputs.comment }}
         BURR_TIMEOUT: ${{ inputs.timeout }}
         GH_TOKEN: ${{ inputs.github-token }}
+        BURR_TOKEN: ${{ inputs.burr-token }}
       run: node "$GITHUB_ACTION_PATH/scripts/check.mjs"

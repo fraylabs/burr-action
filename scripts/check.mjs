@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
+import { hostedExtras } from './hosted.mjs';
 
 const event = JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
 const workspace = fs.realpathSync(process.env.GITHUB_WORKSPACE);
@@ -46,6 +47,8 @@ for (const file of files) {
     if (![0, 1, 3].includes(result.status)) throw new Error(`Burr exited ${result.status}: ${result.stderr.slice(-2000)}`);
     report = JSON.parse(result.stdout);
     if (report.schema_version !== 'burr.checks.v1' || !Array.isArray(report.findings) || !['pass', 'fail', 'incomplete'].includes(report.outcome)) throw new Error('Unsupported Burr report; install a release with check --json');
+    if (!Number.isSafeInteger(report.checked_pair_count) || report.checked_pair_count < 0 || typeof report.pair_set_complete !== 'boolean') throw new Error('Unsupported Burr pair coverage');
+    if (report.pair_set_complete && ((report.unresolved_pairs || []).length || (report.incomplete_reasons || []).length || report.outcome === 'incomplete')) throw new Error('Burr completeness and unresolved geometry disagree');
     if ((result.status === 0) !== (report.outcome === 'pass') || (result.status === 1) !== (report.outcome === 'fail')) throw new Error('Burr exit code and report disagree');
     report.model_path = file;
   } catch (error) {
@@ -63,7 +66,8 @@ for (const report of reports) {
   const unresolved = report.unresolved_pairs || [];
   const contacts = report.contact_pairs || [];
   const complete = report.pair_set_complete === true;
-  summary += `### ${escape(report.model_path)}\n\n**${report.outcome === 'fail' ? 'Interference found' : complete && report.outcome === 'pass' ? 'Pass' : 'Incomplete — not a pass'}** · ${report.findings.length} interference(s) · ${unresolved.length} unresolved pair(s) · ${contacts.length} contact pair(s)\n\n`;
+  const count = Number.isSafeInteger(report.checked_pair_count) && report.checked_pair_count >= 0 ? report.checked_pair_count : 'Unknown number of';
+  summary += `### ${escape(report.model_path)}\n\n${complete ? '' : '**INCOMPLETE — not a pass.** '}${count} pairs checked: ${report.findings.length} interfering, ${contacts.length} touching${complete ? ', all others proven clear' : `; ${unresolved.length} unresolved pair(s), clear remainder not proven`}\n\n`;
   if (report.findings.length) summary += table(report.findings) + '\n\n';
   if (unresolved.length) summary += '**Unresolved pairs**\n\n' + table(unresolved) + '\n\n';
   for (const reason of report.incomplete_reasons || []) summary += `- ${escape(reason.code)}: ${escape(reason.message)}\n`;
@@ -75,6 +79,9 @@ const status = interference ? 'interference' : incomplete ? 'incomplete' : 'pass
 const reportPath = path.join(process.env.RUNNER_TEMP, 'burr-reports.json');
 fs.writeFileSync(reportPath, JSON.stringify({ status, assemblies: reports }, null, 2));
 fs.appendFileSync(process.env.GITHUB_OUTPUT, `status=${status}\nreport-path=${reportPath}\n`);
+const extras = await hostedExtras({ token: process.env.BURR_TOKEN, repository,
+  runId: process.env.GITHUB_RUN_ID, report: { status, assemblies: reports } });
+console.log(`Burr hosted extras: ${extras.status}`);
 const runUrl = `https://github.com/${repository}/actions/runs/${process.env.GITHUB_RUN_ID}`;
 summary += `\n[Workflow run](${runUrl}) · Burr reports proven interference only; unresolved geometry is shown separately.\n`;
 if (summary.length > 60000) summary = summary.slice(0, 59000) + `\n\nReport truncated. See the JSON artifact in the [workflow run](${runUrl}).\n`;
