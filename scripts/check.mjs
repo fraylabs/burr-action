@@ -7,6 +7,9 @@ const workspace = fs.realpathSync(process.env.GITHUB_WORKSPACE);
 process.chdir(workspace);
 const repository = process.env.GITHUB_REPOSITORY;
 const token = process.env.GH_TOKEN;
+for (const name of ['BURR_FAIL_INTERFERENCE', 'BURR_FAIL_UNRESOLVED', 'BURR_COMMENT']) {
+  if (!['true', 'false'].includes(process.env[name])) throw new Error(`${name} must be true or false`);
+}
 const api = async (route, method = 'GET', body) => {
   const response = await fetch(`https://api.github.com/repos/${repository}/${route}`, {
     method, headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'User-Agent': 'burr-action', 'X-GitHub-Api-Version': '2022-11-28' },
@@ -51,7 +54,7 @@ for (const file of files) {
   reports.push(report);
   console.log(`${file}: ${report.outcome}; ${report.findings.length} interference(s), ${(report.unresolved_pairs || []).length} unresolved pair(s)`);
 }
-const escape = value => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\|/g, '&#124;').replace(/\r?\n/g, ' ').replace(/`/g, '&#96;');
+const escape = value => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\r?\n/g, ' ').replace(/[\\`|*_[\]@]/g, c => `&#${c.charCodeAt(0)};`);
 const pair = item => item.components.map(c => escape(c.name || c.definition_name || c.id)).join(' ↔ ');
 const table = items => ['| Parts | Reason |', '| --- | --- |', ...items.slice(0, 100).map(item => `| ${pair(item)} | ${escape(item.message)} |`), ...(items.length > 100 ? [`\n${items.length - 100} more pairs in the JSON report.`] : [])].join('\n');
 let summary = '<!-- burr-action-summary -->\n## Burr assembly checks\n\n';
