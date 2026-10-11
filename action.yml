@@ -7,6 +7,12 @@ inputs:
   files:
     description: Optional newline-separated globs; empty checks STEP/STP files changed in the PR
     default: ''
+  accepted-fits:
+    description: Optional reviewed YAML file listing intended assembly/part pairs
+    default: '.burr/accepted.yml'
+  generate-accepted-fits:
+    description: Print a draft accepted.yml for review; never changes CI acceptance
+    default: 'false'
   fail-on-interference:
     description: Fail when Burr proves an interference
     default: 'true'
@@ -32,9 +38,14 @@ outputs:
   report-path:
     description: JSON report artifact path
     value: ${{ steps.check.outputs.report-path }}
+  accepted-draft-path:
+    description: Draft accepted.yml path when generate-accepted-fits is true
+    value: ${{ steps.check.outputs.accepted-draft-path }}
 runs:
   using: composite
   steps:
+    - shell: bash
+      run: npm ci --ignore-scripts --no-audit --no-fund --prefix "$GITHUB_ACTION_PATH"
     - id: resolve
       shell: bash
       env:
@@ -55,6 +66,8 @@ runs:
       env:
         BURR_DIRECTORY: ${{ steps.resolve.outputs.directory }}
         BURR_FILES: ${{ inputs.files }}
+        BURR_ACCEPTED_FITS: ${{ inputs.accepted-fits }}
+        BURR_GENERATE_ACCEPTED: ${{ inputs.generate-accepted-fits }}
         BURR_FAIL_INTERFERENCE: ${{ inputs.fail-on-interference }}
         BURR_FAIL_UNRESOLVED: ${{ inputs.fail-on-unresolved }}
         BURR_COMMENT: ${{ inputs.comment }}

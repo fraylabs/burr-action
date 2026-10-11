@@ -2,15 +2,18 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { hostedExtras } from './hosted.mjs';
+import { readAccepted, classifyAccepted, acceptedDraft } from './accepted.mjs';
 
 const event = JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
 const workspace = fs.realpathSync(process.env.GITHUB_WORKSPACE);
 process.chdir(workspace);
 const repository = process.env.GITHUB_REPOSITORY;
 const token = process.env.GH_TOKEN;
-for (const name of ['BURR_FAIL_INTERFERENCE', 'BURR_FAIL_UNRESOLVED', 'BURR_COMMENT']) {
+process.env.BURR_GENERATE_ACCEPTED ??= 'false';
+for (const name of ['BURR_FAIL_INTERFERENCE', 'BURR_FAIL_UNRESOLVED', 'BURR_COMMENT', 'BURR_GENERATE_ACCEPTED']) {
   if (!['true', 'false'].includes(process.env[name])) throw new Error(`${name} must be true or false`);
 }
+const acceptedEntries = readAccepted(workspace, process.env.BURR_ACCEPTED_FITS || '.burr/accepted.yml');
 const api = async (route, method = 'GET', body) => {
   const response = await fetch(`https://api.github.com/repos/${repository}/${route}`, {
     method, headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'User-Agent': 'burr-action', 'X-GitHub-Api-Version': '2022-11-28' },
@@ -57,6 +60,14 @@ for (const file of files) {
   reports.push(report);
   console.log(`${file}: ${report.outcome}; ${report.findings.length} interference(s), ${(report.unresolved_pairs || []).length} unresolved pair(s)`);
 }
+const staleAccepted = classifyAccepted(reports, acceptedEntries);
+if (process.env.BURR_GENERATE_ACCEPTED === 'true') {
+  const draftPath = path.join(process.env.RUNNER_TEMP, 'burr-accepted-draft.yml');
+  const draft = acceptedDraft(reports);
+  fs.writeFileSync(draftPath, draft);
+  fs.appendFileSync(process.env.GITHUB_OUTPUT, `accepted-draft-path=${draftPath}\n`);
+  console.log(`Draft accepted.yml (review required; no findings auto-accepted):\n${draft}`);
+}
 const escape = value => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\r?\n/g, ' ').replace(/[\\`|*_[\]@]/g, c => `&#${c.charCodeAt(0)};`);
 const pair = item => item.components.map(c => escape(c.name || c.definition_name || c.id)).join(' ↔ ');
 const table = items => ['| Parts | Reason |', '| --- | --- |', ...items.slice(0, 100).map(item => `| ${pair(item)} | ${escape(item.message)} |`), ...(items.length > 100 ? [`\n${items.length - 100} more pairs in the JSON report.`] : [])].join('\n');
@@ -67,17 +78,29 @@ for (const report of reports) {
   const contacts = report.contact_pairs || [];
   const complete = report.pair_set_complete === true;
   const count = Number.isSafeInteger(report.checked_pair_count) && report.checked_pair_count >= 0 ? report.checked_pair_count : 'Unknown number of';
-  summary += `### ${escape(report.model_path)}\n\n${complete ? '' : '**INCOMPLETE — not a pass.** '}${count} pairs checked: ${report.findings.length} interfering, ${contacts.length} touching${complete ? ', all others proven clear' : `; ${unresolved.length} unresolved pair(s), clear remainder not proven`}\n\n`;
-  if (report.findings.length) summary += table(report.findings) + '\n\n';
+  const accepted = report.accepted_fits;
+  const remaining = report.unaccepted_findings;
+  summary += `### ${escape(report.model_path)}\n\n${complete ? '' : '**INCOMPLETE — not a pass.** '}${count} pairs checked: ${remaining.length} interfering, ${contacts.length} touching${accepted.length ? `, ${accepted.length} accepted fit(s)` : ''}${complete ? ', all others proven clear' : `; ${unresolved.length} unresolved pair(s), clear remainder not proven`}\n\n`;
+  if (remaining.length) summary += table(remaining) + '\n\n';
+  if (accepted.length) {
+    summary += '**Accepted fits**\n\n' + table(accepted.map(fit => ({ ...fit,
+      message: `${fit.accepted_reason} (${fit.acceptance}${fit.volume_limit_enforced === false ? '; volume cap not enforced' : ''})` }))) + '\n\n';
+    if (accepted.some(fit => fit.volume_limit_enforced === false)) console.log('::warning::Accepted fit volume cap not enforced: Burr did not report a measured overlap volume.');
+  }
   if (unresolved.length) summary += '**Unresolved pairs**\n\n' + table(unresolved) + '\n\n';
   for (const reason of report.incomplete_reasons || []) summary += `- ${escape(reason.code)}: ${escape(reason.message)}\n`;
   if (contacts.length) summary += `\n<details><summary>Contact pairs (${contacts.length})</summary>\n\n${table(contacts)}\n\n</details>\n\n`;
 }
-const interference = reports.some(r => r.findings.length > 0);
+if (staleAccepted.length) {
+  summary += '**Stale accepted fits (warning)**\n\n| Assembly | Parts | Reason |\n| --- | --- | --- |\n' +
+    staleAccepted.map(entry => `| ${escape(entry.assembly)} | ${entry.parts.map(escape).join(' ↔ ')} | ${escape(entry.reason)} |`).join('\n') + '\n\n';
+  console.log(`::warning::${staleAccepted.length} accepted fit entry/entries matched no reported interference. See Stale accepted fits in the summary.`);
+}
+const interference = reports.some(r => r.unaccepted_findings.length > 0);
 const incomplete = reports.some(r => r.outcome === 'incomplete' || r.pair_set_complete !== true);
 const status = interference ? 'interference' : incomplete ? 'incomplete' : 'pass';
 const reportPath = path.join(process.env.RUNNER_TEMP, 'burr-reports.json');
-fs.writeFileSync(reportPath, JSON.stringify({ status, assemblies: reports }, null, 2));
+fs.writeFileSync(reportPath, JSON.stringify({ status, assemblies: reports, stale_accepted_fits: staleAccepted }, null, 2));
 fs.appendFileSync(process.env.GITHUB_OUTPUT, `status=${status}\nreport-path=${reportPath}\n`);
 const extras = await hostedExtras({ token: process.env.BURR_TOKEN, repository,
   runId: process.env.GITHUB_RUN_ID, report: { status, assemblies: reports } });
