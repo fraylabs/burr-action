@@ -74,6 +74,7 @@ const table = items => ['| Parts | Reason |', '| --- | --- |', ...items.slice(0,
 let summary = '<!-- burr-action-summary -->\n## Burr assembly checks\n\n';
 if (!reports.length) summary += 'No matching STEP/STP assemblies to check.\n';
 for (const report of reports) {
+  const sectionStart = summary.length;
   const unresolved = report.unresolved_pairs || [];
   const contacts = report.contact_pairs || [];
   const complete = report.pair_set_complete === true;
@@ -87,15 +88,22 @@ for (const report of reports) {
     for (const entry of report.accepted_entry_matches) if (entry.warning)
       console.log(`::warning::Accepted-fit entry matched ${entry.matched_pairs} pair(s): ${entry.warning}`);
   }
-  if (remaining.length) summary += table(remaining) + '\n\n';
   if (accepted.length) {
     summary += '**Accepted fits**\n\n' + table(accepted.map(fit => ({ ...fit,
       message: `${fit.accepted_reason} (${fit.acceptance}${fit.volume_limit_enforced === false ? '; volume cap not enforced' : ''})` }))) + '\n\n';
     if (accepted.some(fit => fit.volume_limit_enforced === false)) console.log('::warning::Accepted fit volume cap not enforced: Burr did not report a measured overlap volume.');
   }
+  if (remaining.length) summary += table(remaining) + '\n\n';
   if (unresolved.length) summary += '**Unresolved pairs**\n\n' + table(unresolved) + '\n\n';
   for (const reason of report.incomplete_reasons || []) summary += `- ${escape(reason.code)}: ${escape(reason.message)}\n`;
   if (contacts.length) summary += `\n<details><summary>Contact pairs (${contacts.length})</summary>\n\n${table(contacts)}\n\n</details>\n\n`;
+  const sectionBudget = Math.floor(50000 / reports.length);
+  const section = summary.slice(sectionStart);
+  if (section.length > sectionBudget) {
+    const cutoff = section.lastIndexOf('\n', Math.max(0, sectionBudget - 200));
+    summary = summary.slice(0, sectionStart) + section.slice(0, Math.max(0, cutoff)) +
+      '\n\nAssembly details truncated. All findings and unresolved pairs remain in the JSON report.\n\n';
+  }
 }
 if (staleAccepted.length) {
   summary += '**Stale accepted fits (warning)**\n\n| Assembly | Parts | Reason |\n| --- | --- | --- |\n' +
