@@ -3,7 +3,7 @@ description: Check STEP assemblies for proven interference, contacts, and unreso
 inputs:
   version:
     description: Released Burr version (without burr-v), or latest
-    default: '0.40.4'
+    default: '0.40.5'
   files:
     description: Optional newline-separated globs; empty checks STEP/STP files changed in the PR
     default: ''

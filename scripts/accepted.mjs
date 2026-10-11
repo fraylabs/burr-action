@@ -26,7 +26,7 @@ const matches = (selector, component) => {
   if (typeof selector === 'string') return selector === partName(component);
   return (!selector.name || selector.name === partName(component)) &&
     (!selector['occurrence-name'] || selector['occurrence-name'] === occurrenceName(component)) &&
-    (!selector['occurrence-path'] || selector['occurrence-path'] === occurrencePath(component));
+    (!selector['occurrence-path'] || (component.identity_stable !== false && selector['occurrence-path'] === occurrencePath(component)));
 };
 const pairMatches = (selectors, components) => components.length === 2 &&
   ((matches(selectors[0], components[0]) && matches(selectors[1], components[1])) ||
@@ -42,6 +42,8 @@ function safety(parts, report, matchCount) {
   const known = inventory(report);
   if (matchCount > 1) return `entry lists one pair but matched ${matchCount}; ambiguous selectors; no findings accepted`;
   if (!known.complete) return 'complete part-name inventory unavailable; uniqueness not proven; no findings accepted';
+  if (parts.some(selector => known.components.some(c => matches(selector, c) && c.identity_stable === false)))
+    return 'source occurrence identity is unstable; no findings accepted';
   if (parts.some(selector => known.components.some(c => matches(selector, c) &&
       (!nonempty(partName(c)) || /^occurrence:\d+$/.test(partName(c))))))
     return 'only occurrence indices available, not stable names; no findings accepted';
@@ -127,7 +129,8 @@ export function acceptedDraft(reports) {
   const omitted = [];
   for (const report of reports) for (const finding of report.findings) {
     const parts = finding.components.map(component => {
-      if (nonempty(occurrencePath(component))) return { name: partName(component), 'occurrence-path': occurrencePath(component) };
+      if (component.identity_stable === true && nonempty(occurrencePath(component))) return { 'occurrence-path': occurrencePath(component) };
+      if (component.identity_stable === undefined && nonempty(occurrencePath(component))) return { name: partName(component), 'occurrence-path': occurrencePath(component) };
       if (nonempty(occurrenceName(component))) return { name: partName(component), 'occurrence-name': occurrenceName(component) };
       return partName(component);
     });
