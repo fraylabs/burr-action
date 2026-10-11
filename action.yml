@@ -1,0 +1,60 @@
+name: Burr STEP assembly check
+description: Check STEP assemblies for proven interference, contacts, and unresolved geometry.
+inputs:
+  version:
+    description: Released Burr version (without burr-v), or latest
+    default: '0.40.4'
+  files:
+    description: Optional newline-separated globs; empty checks STEP/STP files changed in the PR
+    default: ''
+  fail-on-interference:
+    description: Fail when Burr proves an interference
+    default: 'true'
+  fail-on-unresolved:
+    description: Fail when any assembly cannot be fully checked
+    default: 'true'
+  comment:
+    description: Create or update one PR comment as github-actions[bot]
+    default: 'false'
+  github-token:
+    description: Token for reading PR changes and optional bot comment
+    default: ${{ github.token }}
+  timeout:
+    description: Maximum seconds per assembly
+    default: '300'
+outputs:
+  status:
+    description: pass, interference, or incomplete
+    value: ${{ steps.check.outputs.status }}
+  report-path:
+    description: JSON report artifact path
+    value: ${{ steps.check.outputs.report-path }}
+runs:
+  using: composite
+  steps:
+    - id: resolve
+      shell: bash
+      env:
+        BURR_VERSION: ${{ inputs.version }}
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: node "$GITHUB_ACTION_PATH/scripts/install.mjs" resolve
+    - uses: actions/cache@v4
+      with:
+        path: ${{ steps.resolve.outputs.directory }}
+        key: burr-binary-${{ runner.os }}-${{ runner.arch }}-${{ steps.resolve.outputs.version }}-v1
+    - shell: bash
+      env:
+        BURR_VERSION: ${{ steps.resolve.outputs.version }}
+        BURR_DIRECTORY: ${{ steps.resolve.outputs.directory }}
+      run: node "$GITHUB_ACTION_PATH/scripts/install.mjs" install
+    - id: check
+      shell: bash
+      env:
+        BURR_DIRECTORY: ${{ steps.resolve.outputs.directory }}
+        BURR_FILES: ${{ inputs.files }}
+        BURR_FAIL_INTERFERENCE: ${{ inputs.fail-on-interference }}
+        BURR_FAIL_UNRESOLVED: ${{ inputs.fail-on-unresolved }}
+        BURR_COMMENT: ${{ inputs.comment }}
+        BURR_TIMEOUT: ${{ inputs.timeout }}
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: node "$GITHUB_ACTION_PATH/scripts/check.mjs"
