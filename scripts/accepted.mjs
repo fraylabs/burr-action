@@ -9,7 +9,46 @@ export const partName = component => {
   return definition && name.startsWith(`${definition} #`) && /^\d+$/.test(name.slice(definition.length + 2))
     ? definition : name;
 };
-const key = (assembly, parts) => JSON.stringify([assembly, [...parts].sort()]);
+const selectorKey = selector => typeof selector === 'string' ? JSON.stringify({ name: selector }) :
+  JSON.stringify(Object.fromEntries(Object.entries(selector).sort(([a], [b]) => a.localeCompare(b))));
+const key = (assembly, parts) => JSON.stringify([assembly, parts.map(selectorKey).sort()]);
+export const selectorLabel = selector => typeof selector === 'string' ? selector :
+  [selector.name, selector['occurrence-name'], selector['occurrence-path']].filter(Boolean).join(' / ');
+const nonempty = value => typeof value === 'string' && value.trim().length > 0;
+const generated = component => component.name !== partName(component) || /^occurrence:\d+$/.test(component.name || component.id || '');
+const occurrenceName = component => {
+  const explicit = component.occurrence_name || component.instance_name;
+  if (explicit && !(explicit === component.name && generated(component))) return explicit;
+  return !generated(component) ? component.name : undefined;
+};
+const occurrencePath = component => component.occurrence_path || component.instance_path;
+const matches = (selector, component) => {
+  if (typeof selector === 'string') return selector === partName(component);
+  return (!selector.name || selector.name === partName(component)) &&
+    (!selector['occurrence-name'] || selector['occurrence-name'] === occurrenceName(component)) &&
+    (!selector['occurrence-path'] || selector['occurrence-path'] === occurrencePath(component));
+};
+const pairMatches = (selectors, components) => components.length === 2 &&
+  ((matches(selectors[0], components[0]) && matches(selectors[1], components[1])) ||
+   (matches(selectors[0], components[1]) && matches(selectors[1], components[0])));
+function inventory(report) {
+  const components = new Map();
+  for (const component of report.components || []) components.set(component.id ?? component.occurrence_index, component);
+  for (const pair of [...report.findings, ...(report.contact_pairs || []), ...(report.unresolved_pairs || [])])
+    for (const component of pair.components) components.set(component.id ?? component.occurrence_index, component);
+  return { components: [...components.values()], complete: components.size === report.component_count };
+}
+function safety(parts, report, matchCount) {
+  const known = inventory(report);
+  if (matchCount > 1) return `entry lists one pair but matched ${matchCount}; ambiguous selectors; no findings accepted`;
+  if (!known.complete) return 'complete part-name inventory unavailable; uniqueness not proven; no findings accepted';
+  if (parts.some(selector => known.components.some(c => matches(selector, c) &&
+      (!nonempty(partName(c)) || /^occurrence:\d+$/.test(partName(c))))))
+    return 'only occurrence indices available, not stable names; no findings accepted';
+  if (parts.some(selector => known.components.filter(c => matches(selector, c)).length !== 1))
+    return 'part names/selectors are not unique in this assembly; no findings accepted';
+  return null;
+}
 const relativeFile = value => typeof value === 'string' && value.length > 0 &&
   !value.includes('\\') && !path.posix.isAbsolute(value) &&
   value.split('/').every(segment => segment && segment !== '.' && segment !== '..');
@@ -32,7 +71,13 @@ export function readAccepted(workspace, filename) {
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) error('expected an entry');
     if (Object.keys(entry).some(field => !['assembly', 'parts', 'max-overlap-mm3', 'reason'].includes(field))) error('unknown field');
     if (!relativeFile(entry.assembly)) error('assembly must be a relative checkout path');
-    if (!Array.isArray(entry.parts) || entry.parts.length !== 2 || entry.parts.some(p => typeof p !== 'string' || !p.trim())) error('parts must contain exactly two nonempty Burr part names');
+    if (!Array.isArray(entry.parts) || entry.parts.length !== 2) error('parts must contain exactly two selectors');
+    for (const selector of entry.parts) {
+      if (typeof selector === 'string') { if (!nonempty(selector)) error('empty part name'); continue; }
+      if (!selector || typeof selector !== 'object' || Array.isArray(selector) || !Object.keys(selector).length ||
+          Object.keys(selector).some(field => !['name', 'occurrence-name', 'occurrence-path'].includes(field)) ||
+          Object.values(selector).some(value => !nonempty(value))) error('invalid part selector');
+    }
     if (typeof entry.reason !== 'string' || !entry.reason.trim()) error('reason is required');
     if (entry.reason.startsWith('REVIEW REQUIRED:')) error('replace the draft reason after reviewing the fit');
     const maximum = entry['max-overlap-mm3'];
@@ -45,14 +90,23 @@ export function readAccepted(workspace, filename) {
 }
 
 export function classifyAccepted(reports, entries) {
-  const lookup = new Map(entries.map(entry => [entry.matchKey, entry]));
   for (const report of reports) {
     report.accepted_fits = [];
     report.unaccepted_findings = [];
+    report.accepted_entry_matches = entries.filter(entry => entry.assembly === report.model_path).map(entry => {
+      const count = report.findings.filter(finding => pairMatches(entry.parts, finding.components)).length;
+      entry.matched ||= count > 0;
+      return { parts: entry.parts, reason: entry.reason, matched_pairs: count, listed_pairs: 1,
+        warning: count ? safety(entry.parts, report, count) : null };
+    });
     for (const finding of report.findings) {
-      const entry = lookup.get(key(report.model_path, finding.components.map(partName)));
-      if (!entry) { report.unaccepted_findings.push(finding); continue; }
-      entry.matched = true;
+      const matching = report.accepted_entry_matches.filter(entry => pairMatches(entry.parts, finding.components));
+      if (matching.length > 1) for (const entry of matching) entry.warning = 'multiple policy entries match this finding; no findings accepted';
+    }
+    for (const finding of report.findings) {
+      const policies = report.accepted_entry_matches.filter(entry => pairMatches(entry.parts, finding.components));
+      if (policies.length !== 1 || policies[0].warning) { report.unaccepted_findings.push(finding); continue; }
+      const entry = entries.find(e => e.assembly === report.model_path && pairMatches(e.parts, finding.components));
       const volume = finding.overlap_volume_mm3;
       const measured = typeof volume === 'number' && Number.isFinite(volume) && volume >= 0;
       const maximum = entry['max-overlap-mm3'];
@@ -70,8 +124,16 @@ export function classifyAccepted(reports, entries) {
 
 export function acceptedDraft(reports) {
   const entries = new Map();
+  const omitted = [];
   for (const report of reports) for (const finding of report.findings) {
-    const parts = finding.components.map(partName).sort();
+    const parts = finding.components.map(component => {
+      if (nonempty(occurrencePath(component))) return { name: partName(component), 'occurrence-path': occurrencePath(component) };
+      if (nonempty(occurrenceName(component))) return { name: partName(component), 'occurrence-name': occurrenceName(component) };
+      return partName(component);
+    });
+    const count = report.findings.filter(pair => pairMatches(parts, pair.components)).length;
+    const warning = safety(parts, report, count);
+    if (warning) { omitted.push(`${report.model_path}: ${finding.components.map(partName).join(' ↔ ')}: ${warning}`); continue; }
     const matchKey = key(report.model_path, parts);
     const volume = finding.overlap_volume_mm3;
     const measured = typeof volume === 'number' && Number.isFinite(volume) && volume >= 0;
@@ -81,6 +143,7 @@ export function acceptedDraft(reports) {
     else if (measured) existing['max-overlap-mm3'] = Math.max(existing['max-overlap-mm3'] ?? 0, volume);
   }
   return '# Draft only. Review every pair and replace every reason before committing.\n' +
-    '# Repeated occurrences of these part names share this policy. No CI acceptance is changed.\n' +
+    '# Only uniquely selectable pairs are emitted. No CI acceptance is changed.\n' +
+    omitted.map(message => '# Omitted ambiguous pair: ' + message.replace(/[\r\n]/g, ' ')).join('\n') + (omitted.length ? '\n' : '') +
     stringify([...entries.values()]);
 }

@@ -68,8 +68,11 @@ Threads, press fits and inserts can overlap intentionally. Commit a reviewed
 
 The unordered part pair uses Burr's displayed names, with generated ` #N`
 occurrence suffixes removed when Burr provides the underlying definition name.
-Authored suffixes are preserved. Repeated occurrences with the same names share
-the policy; use distinct CAD part names if they need separate decisions. Matching
+Authored suffixes are preserved. An entry lists one pair and accepts it only when
+both selectors are unique in the assembly and exactly one finding matches.
+Ambiguous names, multiple matches, overlapping entries or an incomplete part-name
+inventory warn and leave the findings failing. The summary shows each entry's
+matched pair count. Matching
 uses the exact assembly path and exact names, with no wildcards. Accepted fits
 remain visible with their reasons; unmatched findings still fail. Entries matching
 no interference appear as stale warnings. Unresolved pairs and incomplete checks
@@ -83,13 +86,34 @@ A missing measurement leaves the cap unenforced and produces an explicit warning
 do not rely on a cap for growth protection with the current release.
 
 To prepare the file, set `generate-accepted-fits: 'true'` and select assemblies with
-`files`. The Action prints a ready YAML draft and outputs `accepted-draft-path`
+`files`. The Action prints a YAML draft and outputs `accepted-draft-path`
 for an `if: always()` artifact upload. The draft includes all current findings,
-including already accepted ones. Review each pair, remove unwanted entries and
+including already accepted ones, only when they can be uniquely selected.
+Ambiguous pairs are omitted with explanatory comments. Review each emitted pair and
 replace every `REVIEW REQUIRED` reason before committing it. Draft generation
 does not change the verdict or write the repo's accepted file; committing an
 unreviewed draft is rejected. Set `files` to check assemblies when only the
 accepted file changes in a PR.
+
+When Burr reports stable occurrence names or paths, narrow each part selector:
+
+```yaml
+- assembly: models/bracket.step
+  parts:
+    - name: bracket
+      occurrence-path: chassis/left/bracket
+    - name: shoulder_screw
+      occurrence-name: left_thread_screw
+  reason: Modelled thread engagement is intentional.
+```
+
+The generator prefers this narrow form. The optional selectors match Burr's
+`occurrence_path` / `instance_path` and `occurrence_name` / `instance_name`
+fields, or an authored displayed name without a generated occurrence suffix.
+Generated ` #N` names and occurrence indices are never stable selectors.
+Burr 0.40.4 does not provide stable paths for repeated parts; those fits stay
+unaccepted until the CAD/checker supplies unique stable identities. In particular,
+Ned2's generic names cannot safely distinguish its intended fits from other pairs.
 
 Free checks need no Burr account or token. To enable hosted extras, add
 `burr-token: ${{ secrets.BURR_TOKEN }}` under `with`. The client uses the

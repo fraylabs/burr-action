@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { hostedExtras } from './hosted.mjs';
-import { readAccepted, classifyAccepted, acceptedDraft } from './accepted.mjs';
+import { readAccepted, classifyAccepted, acceptedDraft, selectorLabel } from './accepted.mjs';
 
 const event = JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
 const workspace = fs.realpathSync(process.env.GITHUB_WORKSPACE);
@@ -81,6 +81,12 @@ for (const report of reports) {
   const accepted = report.accepted_fits;
   const remaining = report.unaccepted_findings;
   summary += `### ${escape(report.model_path)}\n\n${complete ? '' : '**INCOMPLETE — not a pass.** '}${count} pairs checked: ${remaining.length} interfering, ${contacts.length} touching${accepted.length ? `, ${accepted.length} accepted fit(s)` : ''}${complete ? ', all others proven clear' : `; ${unresolved.length} unresolved pair(s), clear remainder not proven`}\n\n`;
+  if (report.accepted_entry_matches.length) {
+    summary += '**Accepted-fit entry matches**\n\n| Parts/selectors | Matched pairs / listed | Policy |\n| --- | --- | --- |\n' +
+      report.accepted_entry_matches.map(entry => `| ${entry.parts.map(p => escape(selectorLabel(p))).join(' ↔ ')} | ${entry.matched_pairs} / ${entry.listed_pairs} | ${escape(entry.warning || (entry.matched_pairs ? 'Unique pair' : 'Stale: no matching interference'))} |`).join('\n') + '\n\n';
+    for (const entry of report.accepted_entry_matches) if (entry.warning)
+      console.log(`::warning::Accepted-fit entry matched ${entry.matched_pairs} pair(s): ${entry.warning}`);
+  }
   if (remaining.length) summary += table(remaining) + '\n\n';
   if (accepted.length) {
     summary += '**Accepted fits**\n\n' + table(accepted.map(fit => ({ ...fit,
@@ -93,7 +99,7 @@ for (const report of reports) {
 }
 if (staleAccepted.length) {
   summary += '**Stale accepted fits (warning)**\n\n| Assembly | Parts | Reason |\n| --- | --- | --- |\n' +
-    staleAccepted.map(entry => `| ${escape(entry.assembly)} | ${entry.parts.map(escape).join(' ↔ ')} | ${escape(entry.reason)} |`).join('\n') + '\n\n';
+    staleAccepted.map(entry => `| ${escape(entry.assembly)} | ${entry.parts.map(p => escape(selectorLabel(p))).join(' ↔ ')} | ${escape(entry.reason)} (0 matched pairs) |`).join('\n') + '\n\n';
   console.log(`::warning::${staleAccepted.length} accepted fit entry/entries matched no reported interference. See Stale accepted fits in the summary.`);
 }
 const interference = reports.some(r => r.unaccepted_findings.length > 0);
