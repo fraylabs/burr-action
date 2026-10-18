@@ -69,6 +69,7 @@ if (process.env.BURR_GENERATE_ACCEPTED === 'true') {
   console.log(`Draft accepted.yml (review required; no findings auto-accepted):\n${draft}`);
 }
 const escape = value => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\r?\n/g, ' ').replace(/[\\`|*_[\]@]/g, c => `&#${c.charCodeAt(0)};`);
+const annotation = value => String(value).replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
 const pair = item => item.components.map(c => escape(c.name || c.definition_name || c.id)).join(' ↔ ');
 const table = items => ['| Parts | Reason |', '| --- | --- |', ...items.slice(0, 100).map(item => `| ${pair(item)} | ${escape(item.message)} |`), ...(items.length > 100 ? [`\n${items.length - 100} more pairs in the JSON report.`] : [])].join('\n');
 let summary = '<!-- burr-action-summary -->\n## Burr assembly checks\n\n';
@@ -81,7 +82,20 @@ for (const report of reports) {
   const count = Number.isSafeInteger(report.checked_pair_count) && report.checked_pair_count >= 0 ? report.checked_pair_count : 'Unknown number of';
   const accepted = report.accepted_fits;
   const remaining = report.unaccepted_findings;
-  summary += `### ${escape(report.model_path)}\n\n${complete ? '' : '**INCOMPLETE — not a pass.** '}${count} pairs checked: ${remaining.length} interfering, ${contacts.length} touching${accepted.length ? `, ${accepted.length} accepted fit(s)` : ''}${complete ? ', all others proven clear' : `; ${unresolved.length} unresolved pair(s), clear remainder not proven`}\n\n`;
+  const warningsMode = process.env.BURR_FAIL_UNRESOLVED === 'false';
+  summary += `### ${escape(report.model_path)}\n\n`;
+  if (warningsMode && !complete && !remaining.length) {
+    summary += unresolved.length
+      ? `${accepted.length ? 'No unaccepted overlaps found.' : 'No overlaps found.'} ${unresolved.length} part pair(s) couldn't be checked completely (listed below).\n\n`
+      : 'Assembly could not be checked completely. No overlaps were reported; see the reasons below.\n\n';
+    summary += `${count} pairs checked: ${contacts.length} touching${accepted.length ? `, ${accepted.length} accepted fit(s)` : ''}. Unchecked geometry is not proven clear.\n\n`;
+  } else {
+    summary += `${complete ? '' : '**INCOMPLETE — not a pass.** '}${count} pairs checked: ${remaining.length} interfering, ${contacts.length} touching${accepted.length ? `, ${accepted.length} accepted fit(s)` : ''}${complete ? ', all others proven clear' : `; ${unresolved.length} unresolved pair(s), clear remainder not proven`}\n\n`;
+  }
+  if (warningsMode && !complete) {
+    const detail = unresolved.length ? `${unresolved.length} part pair(s) couldn't be checked completely` : 'assembly could not be checked completely';
+    console.log(`::warning::${annotation(report.model_path)}: ${detail}. Unchecked geometry is not proven clear. See the summary and full JSON report for pairs and reasons.`);
+  }
   if (report.accepted_entry_matches.length) {
     summary += '**Accepted-fit entry matches**\n\n| Parts/selectors | Matched pairs / listed | Policy |\n| --- | --- | --- |\n' +
       report.accepted_entry_matches.map(entry => `| ${entry.parts.map(p => escape(selectorLabel(p))).join(' ↔ ')} | ${entry.matched_pairs} / ${entry.listed_pairs} | ${escape(entry.warning || (entry.matched_pairs ? 'Unique pair' : 'Stale: no matching interference'))} |`).join('\n') + '\n\n';

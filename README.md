@@ -38,6 +38,15 @@ check is never called a pass. The optional comment is created or updated by
 `github-actions[bot]`; a read-only fork token simply skips the comment with a
 warning. Use `pull_request`, never `pull_request_target` to execute untrusted CAD.
 
+Set `fail-on-unresolved: 'false'` to allow incomplete checks without failing the
+job. When no unaccepted overlaps are found, the summary states how many part
+pairs couldn't be checked completely and lists their reasons. Each incomplete
+assembly emits a warning annotation. Import failures and timeouts remain
+explicit, and `status` remains `incomplete`: unchecked geometry is never treated
+as clear. The JSON artifact retains every pair, including when the summary
+must be shortened for GitHub's size limit. Unaccepted overlaps still fail by
+default.
+
 | Input | Default | Meaning |
 | --- | --- | --- |
 | `version` | `0.40.5` | Released Burr version, or `latest` |
